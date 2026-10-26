@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Daily Quotes (Gemini AI Powered)</title>
+
+<!-- DaisyUI + Tailwind + Lucide -->
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+
+<body class="min-h-screen bg-base-200 flex items-center justify-center p-4">
+
+  <div class="w-full max-w-xl space-y-4">
+
+    <!-- Header -->
+    <header class="flex items-center justify-between px-1">
+      <h1 class="text-xl font-bold flex items-center gap-2">
+        <i data-lucide="sparkles" class="w-5 h-5 text-primary"></i>
+        Daily Quotes
+      </h1>
+      <button id="themeBtn" class="btn btn-ghost btn-circle btn-sm" title="Toggle theme">
+        <i data-lucide="moon" class="w-5 h-5"></i>
+      </button>
+    </header>
+
+    <!-- Quote Card -->
+    <div class="card bg-base-100 shadow-xl">
+      <div class="card-body items-center text-center gap-3">
+        <i data-lucide="quote" class="w-8 h-8 text-primary opacity-60"></i>
+        <p id="quote" class="text-lg font-medium leading-relaxed">Loading quote...</p>
+        <p id="author" class="text-sm text-base-content/60"></p>
+
+        <div class="card-actions flex-wrap justify-center gap-2 mt-2">
+          <button id="newBtn" class="btn btn-primary btn-sm gap-2">
+            <i data-lucide="refresh-cw" class="w-4 h-4" id="refreshIcon"></i> New Quote
+          </button>
+          <button id="copyBtn" class="btn btn-ghost btn-sm gap-2">
+            <i data-lucide="copy" class="w-4 h-4"></i> Copy
+          </button>
+          <button id="saveBtn" class="btn btn-ghost btn-sm gap-2"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Favorites -->
+    <div class="card bg-base-100 shadow-xl">
+      <div class="card-body gap-3">
+        <h2 class="card-title text-base flex items-center gap-2">
+          <i data-lucide="bookmark" class="w-4 h-4 text-primary"></i>
+          Favorites
+          <span id="count" class="badge badge-sm badge-primary">0</span>
+        </h2>
+        <ul id="favList" class="space-y-2 max-h-64 overflow-y-auto pr-1"></ul>
+        <p id="empty" class="text-sm text-base-content/50 text-center py-2">No favorites yet.</p>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+/* ---------- Fallback Data ---------- */
+const fallbackQuotes = [
+  { t: "The only way to do great work is to love what you do.", a: "Steve Jobs" },
+  { t: "Believe you can and you're halfway there.", a: "Theodore Roosevelt" },
+  { t: "It always seems impossible until it's done.", a: "Nelson Mandela" }
+];
+
+/* ---------- Helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+
+let current = null;
+
+/* ---------- Quote Generation (Gemini API) ---------- */
+async function newQuote() {
+  const newBtn = $("#newBtn");
+  const refreshIcon = $("#refreshIcon");
+  
+  newBtn.classList.add("btn-disabled");
+  refreshIcon.classList.add("animate-spin");
+
+  try {
+    // Vercel Serverless API-a ýüzlenýäris
+    const res = await fetch("/api/quote");
+    if (!res.ok) throw new Error("API failed");
+    
+    const data = await res.json();
+    if (data.t && data.a) {
+      current = data;
+    } else {
+      throw new Error("Invalid format");
+    }
+  } catch (err) {
+    console.warn("Gemini API error, falling back to local storage:", err);
+    // Ýalňyşlyk ýüze çyksa backup sitatalardan saýlaýarys
+    current = fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
+  } finally {
+    newBtn.classList.remove("btn-disabled");
+    refreshIcon.classList.remove("animate-spin");
+    renderQuote();
+  }
+}
+
+function renderQuote() {
+  if (!current) return;
+  $("#quote").textContent = `“${current.t}”`;
+  $("#author").textContent = `— ${current.a}`;
+  const saved = load("favorites", []).some((f) => f.t === current.t);
+  $("#saveBtn").innerHTML =
+    `<i data-lucide="heart" class="w-4 h-4 ${saved ? "fill-current text-error" : ""}"></i> ${saved ? "Saved" : "Save"}`;
+  lucide.createIcons();
+}
+
+/* ---------- Favorites ---------- */
+function renderFavorites() {
+  const favs = load("favorites", []);
+  $("#count").textContent = favs.length;
+  $("#empty").classList.toggle("hidden", favs.length > 0);
+
+  $("#favList").innerHTML = favs.map((f, i) => `
+    <li class="flex items-start gap-2 bg-base-200 rounded-lg p-3">
+      <div class="flex-1 min-w-0">
+        <p class="text-sm">“${esc(f.t)}”</p>
+        <p class="text-xs text-base-content/60">— ${esc(f.a)}</p>
+      </div>
+      <button class="btn btn-ghost btn-xs btn-square" data-del="${i}" title="Remove">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+      </button>
+    </li>`).join("");
+
+  lucide.createIcons();
+}
+
+function toggleSave() {
+  if (!current) return;
+  const favs = load("favorites", []);
+  const i = favs.findIndex((f) => f.t === current.t);
+  if (i > -1) { favs.splice(i, 1); toast("Removed from favorites"); }
+  else { favs.push(current); toast("Saved to favorites"); }
+  save("favorites", favs);
+  renderQuote();
+  renderFavorites();
+}
+
+/* ---------- Copy ---------- */
+async function copyQuote() {
+  if (!current) return;
+  try {
+    await navigator.clipboard.writeText(`“${current.t}” — ${current.a}`);
+    toast("Copied to clipboard!");
+  } catch { toast("Copy failed"); }
+}
+
+/* ---------- Theme ---------- */
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  save("theme", theme);
+  $("#themeBtn").innerHTML =
+    `<i data-lucide="${theme === "dark" ? "sun" : "moon"}" class="w-5 h-5"></i>`;
+  lucide.createIcons();
+}
+
+/* ---------- Toast ---------- */
+function toast(msg) {
+  const el = document.createElement("div");
+  el.className = "toast toast-top toast-center z-50";
+  el.innerHTML = `<div class="alert alert-success py-2 text-sm shadow-lg">${esc(msg)}</div>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1800);
+}
+
+/* ---------- Events ---------- */
+$("#newBtn").addEventListener("click", newQuote);
+$("#copyBtn").addEventListener("click", copyQuote);
+$("#saveBtn").addEventListener("click", toggleSave);
+
+$("#themeBtn").addEventListener("click", () => {
+  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+});
+
+$("#favList").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-del]");
+  if (!btn) return;
+  const favs = load("favorites", []);
+  favs.splice(Number(btn.dataset.del), 1);
+  save("favorites", favs);
+  renderFavorites();
+  renderQuote();
+});
+
+/* ---------- Init ---------- */
+setTheme(load("theme", window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+newQuote();
+renderFavorites();
+lucide.createIcons();
+</script>
+</body>
+</html>
